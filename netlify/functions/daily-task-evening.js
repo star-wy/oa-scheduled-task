@@ -11,9 +11,372 @@ const { schedule } = require('@netlify/functions');
 const chromium = require('@sparticuz/chromium');
 // Puppeteer 核心库（用于浏览器自动化）
 const puppeteer = require('puppeteer-core');
-// 文件系统模块（用于读取打卡辅助脚本）
-const fs = require('fs');
-const path = require('path');
+// 打卡辅助脚本代码（直接嵌入，避免文件系统依赖）
+const PUNCH_HELPER_CODE = `/**
+ * 打卡辅助脚本 - 在浏览器控制台中运行
+ * 用于定位 WeaTools 并触发打卡功能
+ */
+
+(function(punchConfig) {
+  'use strict';
+  
+  // 使用传入的配置，如果没有传入则使用默认配置
+  const config = punchConfig || {
+    punchTimes: [
+      { hour: 9, minute: 0, name: '上午上班打卡' },
+      { hour: 19, minute: 30, name: '下午下班打卡' }
+    ],
+    checkInterval: 60 * 1000, // 60秒 = 1分钟
+    errorMinutes: 1 // 误差1分钟
+  };
+
+  // 查找 WeaTools 对象
+  function findWeaTools() {
+    const candidates = [
+      window.WeaTools,
+      window.ecCom?.WeaTools,
+      window.ecCom,
+      window.weaHrmSignPlguin,
+      // 尝试从 React 组件中获取
+      ...(() => {
+        const results = [];
+        try {
+          const signBtn = document.querySelector('button[name="signBtn"]');
+          if (signBtn) {
+            // 查找 React 内部实例
+            const reactKey = Object.keys(signBtn).find(key => 
+              key.startsWith('__reactInternalInstance') || 
+              key.startsWith('__reactFiber') ||
+              key.startsWith('_react')
+            );
+            if (reactKey) {
+              const instance = signBtn[reactKey];
+              // 向上遍历 React 树查找包含 WeaTools 的上下文
+              let current = instance;
+              for (let i = 0; i < 10 && current; i++) {
+                if (current.memoizedProps?.sign) {
+                  // 找到包含 sign 方法的组件
+                  results.push(current);
+                }
+                current = current.return || current._owner;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('查找 React 实例时出错:', e);
+        }
+        return results;
+      })()
+    ].filter(Boolean);
+
+    // 检查每个候选对象是否有 callApi 方法
+    for (let candidate of candidates) {
+      if (candidate && typeof candidate.callApi === 'function') {
+        return candidate;
+      }
+      if (candidate && candidate.WeaTools && typeof candidate.WeaTools.callApi === 'function') {
+        return candidate.WeaTools;
+      }
+    }
+
+    // 最后尝试：遍历全局对象
+    for (let key in window) {
+      try {
+        const obj = window[key];
+        if (obj && typeof obj === 'object' && obj.WeaTools && typeof obj.WeaTools.callApi === 'function') {
+          return obj.WeaTools;
+        }
+      } catch (e) {
+        // 忽略访问受限的属性
+      }
+    }
+
+    return null;
+  }
+
+  // 获取打卡参数
+  // @param {String} punchType - 可选，指定打卡类型："on"（上班）或 "off"（下班），如果不指定则查找所有可用的打卡项
+  async function getSignParams(WeaTools, punchType = null) {
+    try {
+      const result = await WeaTools.callApi(
+        "/api/hrm/kq/attendanceButton/getButtons",
+        "POST",
+        {}
+      );
+
+      if (result.status !== "1") {
+        throw new Error(result.message || "获取打卡按钮失败");
+      }
+
+      // 查找当前需要打卡的项
+      // active="1" 且 type="on" 表示上班打卡
+      // active="1" 且 type="off" 表示下班打卡
+      let signParams = null;
+      
+      if (punchType) {
+        // 如果指定了打卡类型，查找对应类型的打卡项
+        signParams = result.timeline?.find(item => 
+          item.active === "1" && item.type === punchType
+        );
+      } else {
+        // 如果没有指定类型，查找所有可用的打卡项（优先上班卡，如果没有则找下班卡）
+        signParams = result.timeline?.find(item => 
+          item.active === "1" && item.type === "on"
+        ) || result.timeline?.find(item => 
+          item.active === "1" && item.type === "off"
+        );
+      }
+
+      return signParams || null;
+    } catch (error) {
+      console.error("获取打卡参数失败:", error);
+      throw error;
+    }
+  }
+
+  // 执行打卡
+  async function doPunch(WeaTools, signParams) {
+    try {
+      const result = await WeaTools.callApi(
+        "/api/hrm/kq/attendanceButton/punchButton",
+        "POST",
+        signParams
+      );
+
+      return result;
+    } catch (error) {
+      console.error("打卡失败:", error);
+      throw error;
+    }
+  }
+
+  // 检查是否是登录页面并自动登录
+  function checkAndAutoLogin() {
+    const submitBtn = document.getElementById('submit');
+    if (submitBtn) {
+      console.log('🔍 检测到登录页面，将在20秒后自动点击登录按钮...');
+      setTimeout(() => {
+        // 再次检查是否是登录页面（防止页面已跳转）
+        const btn = document.getElementById('submit');
+        if (btn) {
+          console.log('✅ 自动点击登录按钮...');
+          // 使用 jQuery 点击按钮（如果页面有 jQuery）
+          if (typeof $ !== 'undefined' && $.fn.jquery) {
+            $('#submit').click();
+          } else {
+            // 如果没有 jQuery，使用原生方法
+            btn.click();
+          }
+        } else {
+          console.log('ℹ️ 登录按钮未找到，可能已跳转');
+        }
+      }, 20000); // 延时20秒
+      return true; // 返回 true 表示检测到登录页面
+    }
+    return false; // 返回 false 表示不是登录页面
+  }
+
+  // 主函数：一键打卡
+  // @param {Object} punchTimeInfo - 可选，打卡时间信息对象，包含 name 属性用于判断打卡类型
+  async function punch(punchTimeInfo = null) {
+    console.log("=== 开始打卡流程 ===");
+
+    // 0. 检查是否是登录页面，如果是则自动登录
+    if (checkAndAutoLogin()) {
+      console.log("⚠️ 检测到登录页面，已启动自动登录，等待登录完成...");
+      return null; // 返回 null，等待自动登录完成
+    }
+
+    // 1. 查找 WeaTools
+    console.log("1. 正在查找 WeaTools...");
+    const WeaTools = findWeaTools();
+
+    if (!WeaTools) {
+      console.error("❌ 未找到 WeaTools 对象");
+      // 检查是否是登录页面
+      if (checkAndAutoLogin()) {
+        console.log("⚠️ 检测到登录页面，已启动自动登录，等待登录完成...");
+        return null;
+      }
+      console.log("\\n请尝试以下方法：");
+      console.log("1. 检查页面是否完全加载");
+      console.log("2. 手动点击一次打卡按钮，查看 Network 请求");
+      console.log("3. 在 Network 请求的调用栈中查找 WeaTools");
+      console.log("4. 尝试直接点击按钮: document.querySelector('button[name=\\"signBtn\\"]')?.click()");
+      return null;
+    }
+
+    console.log("✓ 找到 WeaTools:", WeaTools);
+
+    // 2. 根据打卡时间信息判断打卡类型（上班或下班）
+    let punchType = null; // "on" 表示上班打卡，"off" 表示下班打卡
+    if (punchTimeInfo && punchTimeInfo.time && punchTimeInfo.time.name) {
+      const name = punchTimeInfo.time.name;
+      // 根据打卡时间名称判断是上班还是下班
+      if (name.includes("上班") || name.includes("on")) {
+        punchType = "on";
+        console.log("📌 检测到上班打卡时间");
+      } else if (name.includes("下班") || name.includes("off")) {
+        punchType = "off";
+        console.log("📌 检测到下班打卡时间");
+      }
+    }
+
+    // 3. 获取打卡参数
+    console.log("\\n2. 正在获取打卡参数...");
+    let signParams;
+    try {
+      signParams = await getSignParams(WeaTools, punchType);
+      if (!signParams) {
+        console.log("⚠ 当前没有可打卡的项（可能已经打卡过了）");
+        return null;
+      }
+      console.log("✓ 找到打卡参数:", signParams);
+    } catch (error) {
+      console.error("❌ 获取打卡参数失败:", error);
+      return null;
+    }
+
+    // 4. 执行打卡
+    console.log("\\n3. 正在执行打卡...");
+    try {
+      const result = await doPunch(WeaTools, signParams);
+      console.log("✓ 打卡结果:", result);
+
+      if (result.message) {
+        alert(result.message);
+      }
+
+      if (result.status === "1") {
+        console.log("✅ 打卡成功！");
+      } else {
+        console.warn("⚠ 打卡可能未成功，请检查结果");
+      }
+
+      return result;
+    } catch (error) {
+      console.error("❌ 打卡失败:", error);
+      return null;
+    }
+  }
+
+  // 暴露到全局作用域
+  window.PunchHelper = {
+    // 方法1: 通过 API 打卡（推荐）
+    punch: punch,
+    
+    // 查找 WeaTools
+    findWeaTools: findWeaTools
+  };
+
+  // 重写 alert 函数，在页面上显示 HTML 提示框
+  window.alert = function(message) { 
+    // 确保 message 是字符串
+    if (message === null || message === undefined) {
+      message = String(message);
+    } else {
+      message = String(message);
+    }
+    
+    // 创建提示框的函数
+    const createAlert = function() {
+      try {
+        // 检查 document.body 是否存在
+        if (!document.body) {
+          console.warn('document.body 不存在，等待 DOM 加载...');
+          // 等待 DOM 加载完成
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', createAlert);
+            return;
+          } else {
+            // 如果已经加载但 body 还不存在，延迟重试
+            setTimeout(createAlert, 100);
+            return;
+          }
+        }
+        
+        // 如果已存在提示框，先移除旧的
+        const existingAlert = document.getElementById('punch-helper-alert-container');
+        if (existingAlert) {
+          existingAlert.remove();
+        }
+        
+        // 创建提示框容器
+        const alertContainer = document.createElement('div');
+        alertContainer.id = 'punch-helper-alert-container';
+        alertContainer.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 999999; max-width: 400px; animation: slideInRight 0.3s ease-out;';
+        
+        // 创建提示框内容
+        const alertBox = document.createElement('div');
+        alertBox.style.cssText = 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 16px 20px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15); display: flex; align-items: center; justify-content: space-between; gap: 12px; font-family: -apple-system, BlinkMacSystemFont, \\'Segoe UI\\', Roboto, \\'Helvetica Neue\\', Arial, sans-serif; font-size: 14px; line-height: 1.5; word-wrap: break-word; word-break: break-word;';
+        
+        // 创建消息内容
+        const messageDiv = document.createElement('div');
+        messageDiv.style.cssText = 'flex: 1; min-width: 0;';
+        messageDiv.textContent = message;
+        
+        // 创建关闭按钮
+        const closeBtn = document.createElement('button');
+        closeBtn.innerHTML = '×';
+        closeBtn.style.cssText = 'background: rgba(255, 255, 255, 0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; font-size: 18px; line-height: 1; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background 0.2s;';
+        closeBtn.onmouseover = function() {
+          this.style.background = 'rgba(255, 255, 255, 0.3)';
+        };
+        closeBtn.onmouseout = function() {
+          this.style.background = 'rgba(255, 255, 255, 0.2)';
+        };
+        
+        // 添加关闭功能
+        const closeAlert = function() {
+          alertContainer.style.animation = 'slideOutRight 0.3s ease-out';
+          setTimeout(() => {
+            if (alertContainer.parentNode) {
+              alertContainer.parentNode.removeChild(alertContainer);
+            }
+          }, 300);
+        };
+        
+        closeBtn.onclick = closeAlert;
+        
+        // 组装提示框
+        alertBox.appendChild(messageDiv);
+        alertBox.appendChild(closeBtn);
+        alertContainer.appendChild(alertBox);
+        
+        // 添加动画样式（如果还没有添加）
+        if (!document.getElementById('punch-helper-alert-styles')) {
+          const style = document.createElement('style');
+          style.id = 'punch-helper-alert-styles';
+          style.textContent = '@keyframes slideInRight { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } } @keyframes slideOutRight { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }';
+          if (document.head) {
+            document.head.appendChild(style);
+          } else {
+            setTimeout(() => {
+              if (document.head) {
+                document.head.appendChild(style);
+              }
+            }, 100);
+          }
+        }
+        
+        // 添加到页面
+        document.body.appendChild(alertContainer);
+        
+        // 5秒后自动关闭
+        setTimeout(closeAlert, 5000);
+        
+        console.log('✅ 提示框已创建并显示');
+      } catch (error) {
+        console.error('创建提示框时出错:', error);
+        console.log('Alert:', message);
+      }
+    };
+    
+    // 立即尝试创建，如果 DOM 未准备好会自动等待
+    createAlert();
+  };
+  console.log("✅ 打卡辅助脚本已加载！");
+})(window._PUNCH_CONFIG); // 接收传入的配置`;
 
 /**
  * 登录配置
@@ -237,30 +600,9 @@ async function performPunch(page, punchType) {
   console.log(`\n开始执行打卡操作（类型: ${punchType}）...`);
   
   try {
-    // 读取打卡辅助脚本（尝试多个可能的路径）
-    const possiblePaths = [
-      path.join(__dirname, 'punch-helper.js'),           // 同目录下
-      path.join(__dirname, '../../punch-helper.js'),      // 项目根目录
-      path.join(process.cwd(), 'punch-helper.js'),        // 当前工作目录
-      path.join(process.cwd(), 'netlify/functions/punch-helper.js') // 完整路径
-    ];
-    
-    let punchHelperPath = null;
-    for (const testPath of possiblePaths) {
-      if (fs.existsSync(testPath)) {
-        punchHelperPath = testPath;
-        console.log(`✓ 找到打卡辅助脚本: ${testPath}`);
-        break;
-      }
-    }
-    
-    if (!punchHelperPath) {
-      console.warn("⚠️ 未找到 punch-helper.js 文件，尝试的路径:");
-      possiblePaths.forEach(p => console.warn(`  - ${p}`));
-      return { success: false, error: '未找到打卡辅助脚本' };
-    }
-    
-    const punchHelperCode = fs.readFileSync(punchHelperPath, 'utf-8');
+    // 使用嵌入的打卡辅助脚本代码（避免文件系统依赖）
+    const punchHelperCode = PUNCH_HELPER_CODE;
+    console.log(`✓ 使用嵌入的打卡辅助脚本`);
     
     // 等待页面完全加载，确保页面框架已初始化
     console.log("等待页面完全加载（等待 WeaTools 可用）...");
