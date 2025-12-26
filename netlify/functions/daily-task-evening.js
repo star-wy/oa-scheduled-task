@@ -1,8 +1,8 @@
 /**
- * Netlify Functions 定时任务
+ * Netlify Functions 定时任务（晚上）
  * 功能：使用 Puppeteer 自动化访问指定网页并执行任务
- * 执行频率：每天 8:40 执行一次（北京时间）
- * Cron 表达式：40 0 * * * (UTC 时间 0:40，对应北京时间 8:40)
+ * 执行频率：每天 19:30 执行一次（北京时间）
+ * Cron 表达式：30 11 * * * (UTC 时间 11:30，对应北京时间 19:30)
  */
 
 // Netlify Functions 的定时任务调度器
@@ -375,8 +375,8 @@ const taskHandler = async (event, context) => {
       console.log("等待页面加载完成...");
       await page.waitForTimeout(3000);
       
-      // 执行打卡（早上是上班打卡 "on"）
-      punchResult = await performPunch(page, 'on');
+      // 执行打卡（晚上是下班打卡 "off"）
+      punchResult = await performPunch(page, 'off');
       
       if (punchResult.success) {
         console.log("✓ 打卡操作执行成功");
@@ -430,5 +430,6 @@ const taskHandler = async (event, context) => {
 
 // 导出定时任务处理器
 // Cron 表达式格式：分钟 小时 日 月 周
-// 40 0 * * * 表示每天 UTC 0:40（北京时间 8:40）执行
-module.exports.handler = schedule("40 0 * * *", taskHandler);
+// 30 11 * * * 表示每天 UTC 11:30（北京时间 19:30）执行
+module.exports.handler = schedule("30 11 * * *", taskHandler);
+

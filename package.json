@@ -4,7 +4,8 @@
   "description": "Netlify 定时自动化任务",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:local": "node test-daily-task-local.js"
   },
   "dependencies": {
     "@netlify/functions": "^2.0.0",
