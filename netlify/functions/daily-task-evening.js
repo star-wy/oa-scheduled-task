@@ -592,20 +592,70 @@ async function performLogin(page, username, password) {
       console.log(`✓ 找到密码输入框: ${loginResult.foundPasswordSelector}`);
       console.log(`✓ 找到登录按钮: ${loginResult.foundButtonSelector}`);
       
+      // 记录登录前的URL
+      const beforeLoginUrl = page.url();
+      console.log(`📍 登录前页面地址: ${beforeLoginUrl}`);
+      
       // 等待页面响应（登录后的跳转或加载）
-      // 尝试等待页面跳转或特定元素出现，而不是固定等待
-      console.log("等待登录响应...");
+      console.log("等待登录响应和页面跳转...");
+      
+      // 方法1: 等待页面导航完成（最多等待15秒）
       try {
-        // 等待页面导航完成或特定元素出现（最多等待3秒）
-        await Promise.race([
-          page.waitForNavigation({ timeout: 3000, waitUntil: 'domcontentloaded' }).catch(() => {}),
-          page.waitForSelector('button[name="signBtn"], #submit', { timeout: 3000 }).catch(() => {}),
-          new Promise(resolve => setTimeout(resolve, 2000)) // 最小等待2秒
-        ]);
-      } catch (e) {
-        // 如果等待失败，使用较短的固定等待
-        await page.waitForTimeout(2000);
+        await page.waitForNavigation({ 
+          timeout: 15000, 
+          waitUntil: 'networkidle0' // 等待网络空闲
+        });
+        console.log("✓ 检测到页面导航完成");
+      } catch (navError) {
+        console.log("⚠️ 未检测到页面导航，继续等待...");
+        // 如果导航超时，继续等待
+        await page.waitForTimeout(5000);
       }
+      
+      // 方法2: 等待特定元素出现（表示已登录成功）
+      try {
+        await page.waitForSelector('button[name="signBtn"]', { 
+          timeout: 10000 
+        });
+        console.log("✓ 检测到打卡按钮，说明已登录成功");
+      } catch (selectorError) {
+        console.log("⚠️ 未找到打卡按钮，继续检查...");
+      }
+      
+      // 检查当前URL是否变化
+      const afterLoginUrl = page.url();
+      console.log(`📍 登录后页面地址: ${afterLoginUrl}`);
+      
+      // 检查是否还在登录页（检查登录相关元素和打卡按钮）
+      const pageStatus = await page.evaluate(() => {
+        const submitBtn = document.getElementById('submit');
+        const loginid = document.getElementById('loginid');
+        const signBtn = document.querySelector('button[name="signBtn"]');
+        const hasWeaTools = typeof window.WeaTools !== 'undefined' || 
+                           (typeof window.ecCom !== 'undefined' && window.ecCom?.WeaTools);
+        
+        return {
+          isLoginPage: submitBtn !== null && loginid !== null,
+          hasSignBtn: signBtn !== null,
+          hasWeaTools: hasWeaTools
+        };
+      });
+      
+      console.log(`页面状态检查:`, JSON.stringify(pageStatus, null, 2));
+      
+      if (pageStatus.isLoginPage && !pageStatus.hasSignBtn && beforeLoginUrl === afterLoginUrl) {
+        console.warn("⚠️ 警告: 登录后页面未跳转，可能登录失败");
+        console.warn("⚠️ 当前仍在登录页面，未检测到打卡按钮");
+        // 可以选择返回 false 或继续尝试
+        // return false;
+      } else if (pageStatus.hasSignBtn || pageStatus.hasWeaTools) {
+        console.log("✓ 检测到打卡相关元素，登录可能成功");
+      } else {
+        console.log("✓ 页面已跳转或内容已变化");
+      }
+      
+      // 额外等待确保页面完全加载
+      await page.waitForTimeout(3000);
       
       return true;
     } else {
