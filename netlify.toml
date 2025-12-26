@@ -4,3 +4,7 @@
 [functions]
   node_bundler = "esbuild"
   external_node_modules = ["chrome-aws-lambda", "puppeteer-core"]
+
+[build.environment]
+  NODE_VERSION = "16.15.0"
+  AWS_LAMBDA_JS_RUNTIME = "nodejs16.x"
