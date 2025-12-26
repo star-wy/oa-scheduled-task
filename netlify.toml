@@ -3,7 +3,7 @@
 
 [functions]
   node_bundler = "esbuild"
-  external_node_modules = ["chrome-aws-lambda", "puppeteer-core"]
+  external_node_modules = ["@sparticuz/chromium", "puppeteer-core"]
 
 [build.environment]
   NODE_VERSION = "16.15.0"

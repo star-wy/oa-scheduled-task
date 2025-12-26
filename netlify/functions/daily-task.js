@@ -1,16 +1,18 @@
 const { schedule } = require('@netlify/functions');
-const chromium = require('chrome-aws-lambda');
+const chromium = require('@sparticuz/chromium');
+const puppeteer = require('puppeteer-core');
 
 // 核心任务逻辑
 const taskHandler = async (event, context) => {
-  console.log("启动定时任务 (chrome-aws-lambda v10.1.0)...");
+  console.log("启动定时任务 (@sparticuz/chromium)...");
   let browser = null;
 
   try {
-    // 必须手动设置 executablePath，否则会在本地报错或云端找不到
-    const executablePath = await chromium.executablePath;
+    // 在 Netlify Functions 环境中使用 @sparticuz/chromium
+    // 该包已包含所有必要的系统依赖，无需额外配置
+    const executablePath = await chromium.executablePath();
 
-    browser = await chromium.puppeteer.launch({
+    browser = await puppeteer.launch({
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
       executablePath: executablePath,
