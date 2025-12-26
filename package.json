@@ -8,8 +8,8 @@
   },
   "dependencies": {
     "@netlify/functions": "^2.0.0",
-    "@sparticuz/chromium": "^119.0.0",
-    "puppeteer-core": "^24.8.0"
+    "@sparticuz/chromium": "112.0.0",
+    "puppeteer-core": "19.11.1"
   },
   "engines": {
     "node": ">=16.0.0"

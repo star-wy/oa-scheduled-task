@@ -9,6 +9,7 @@ const taskHandler = async (event, context) => {
 
   try {
     // 启动 Serverless 版 Chrome
+    // @sparticuz/chromium v112 的配置方式
     browser = await puppeteer.launch({
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
