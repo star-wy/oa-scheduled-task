@@ -494,7 +494,20 @@ async function runTaskLocally() {
       console.log("\n✓ 登录流程完成");
       
       // 等待页面跳转和加载完成
-      console.log("等待页面加载完成...");
+      console.log("等待页面跳转和加载完成...");
+      // 等待页面稳定，确保跳转完成
+      await page.waitForTimeout(5000);
+      
+      // 尝试等待页面导航完成（如果页面正在跳转）
+      try {
+        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }).catch(() => {
+          // 如果导航超时或没有导航，继续执行
+        });
+      } catch (e) {
+        // 忽略导航等待错误，继续执行
+      }
+      
+      // 额外等待页面完全加载
       await page.waitForTimeout(3000);
       
       // 读取并注入打卡辅助脚本
@@ -502,10 +515,6 @@ async function runTaskLocally() {
       const punchHelperPath = path.join(__dirname, 'punch-helper.js');
       if (fs.existsSync(punchHelperPath)) {
         const punchHelperCode = fs.readFileSync(punchHelperPath, 'utf-8');
-        
-        // 等待页面完全加载，确保页面框架已初始化
-        console.log("等待页面完全加载（等待 WeaTools 可用）...");
-        await page.waitForTimeout(5000);
         
         // 注入打卡辅助脚本到页面并执行打卡
         console.log("\n开始执行打卡操作...");
@@ -529,10 +538,10 @@ async function runTaskLocally() {
             };
           }
           
-          // 等待 WeaTools 可用（最多等待 10 秒）
+          // 等待 WeaTools 可用（最多等待 30 秒，给页面更多时间加载）
           let weaToolsRetries = 0;
           let weaTools = null;
-          while (!weaTools && weaToolsRetries < 10) {
+          while (!weaTools && weaToolsRetries < 30) {
             weaTools = window.PunchHelper.findWeaTools();
             if (!weaTools) {
               await new Promise(resolve => setTimeout(resolve, 1000));
@@ -543,9 +552,11 @@ async function runTaskLocally() {
           if (!weaTools) {
             return {
               success: false,
-              error: 'WeaTools 未找到，请确保页面已完全加载'
+              error: 'WeaTools 未找到，请确保页面已完全加载。可能需要更长时间等待页面初始化。'
             };
           }
+          
+          console.log('✓ WeaTools 已找到，开始执行打卡...');
           
           try {
             // 执行打卡

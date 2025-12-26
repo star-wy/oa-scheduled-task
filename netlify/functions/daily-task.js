@@ -152,8 +152,19 @@ const PUNCH_HELPER_CODE = `/**
 
   // 检查是否是登录页面并自动登录
   function checkAndAutoLogin() {
+    // 更严格的登录页面判断：需要同时满足多个条件
     const submitBtn = document.getElementById('submit');
-    if (submitBtn) {
+    const loginid = document.getElementById('loginid');
+    const userpassword = document.getElementById('userpassword');
+    
+    // 如果找到了 WeaTools，说明肯定不是登录页面
+    const weaTools = findWeaTools();
+    if (weaTools) {
+      return false; // 有 WeaTools 说明已经登录成功
+    }
+    
+    // 判断是否是登录页面：需要同时有登录按钮和登录输入框
+    if (submitBtn && (loginid || userpassword)) {
       console.log('🔍 检测到登录页面，将在20秒后自动点击登录按钮...');
       setTimeout(() => {
         // 再次检查是否是登录页面（防止页面已跳转）
@@ -181,23 +192,19 @@ const PUNCH_HELPER_CODE = `/**
   async function punch(punchTimeInfo = null) {
     console.log("=== 开始打卡流程 ===");
 
-    // 0. 检查是否是登录页面，如果是则自动登录
-    if (checkAndAutoLogin()) {
-      console.log("⚠️ 检测到登录页面，已启动自动登录，等待登录完成...");
-      return null; // 返回 null，等待自动登录完成
-    }
-
-    // 1. 查找 WeaTools
+    // 1. 先查找 WeaTools（如果找到了，说明已经登录成功，不是登录页面）
     console.log("1. 正在查找 WeaTools...");
-    const WeaTools = findWeaTools();
+    let WeaTools = findWeaTools();
 
+    // 2. 如果没找到 WeaTools，再检查是否是登录页面
     if (!WeaTools) {
-      console.error("❌ 未找到 WeaTools 对象");
+      console.log("未找到 WeaTools，检查是否是登录页面...");
       // 检查是否是登录页面
       if (checkAndAutoLogin()) {
         console.log("⚠️ 检测到登录页面，已启动自动登录，等待登录完成...");
         return null;
       }
+      console.error("❌ 未找到 WeaTools 对象，且不是登录页面");
       console.log("\\n请尝试以下方法：");
       console.log("1. 检查页面是否完全加载");
       console.log("2. 手动点击一次打卡按钮，查看 Network 请求");
@@ -208,7 +215,7 @@ const PUNCH_HELPER_CODE = `/**
 
     console.log("✓ 找到 WeaTools:", WeaTools);
 
-    // 2. 根据打卡时间信息判断打卡类型（上班或下班）
+    // 3. 根据打卡时间信息判断打卡类型（上班或下班）
     let punchType = null; // "on" 表示上班打卡，"off" 表示下班打卡
     if (punchTimeInfo && punchTimeInfo.time && punchTimeInfo.time.name) {
       const name = punchTimeInfo.time.name;
@@ -222,7 +229,7 @@ const PUNCH_HELPER_CODE = `/**
       }
     }
 
-    // 3. 获取打卡参数
+    // 4. 获取打卡参数
     console.log("\\n2. 正在获取打卡参数...");
     let signParams;
     try {
@@ -237,7 +244,7 @@ const PUNCH_HELPER_CODE = `/**
       return null;
     }
 
-    // 4. 执行打卡
+    // 5. 执行打卡
     console.log("\\n3. 正在执行打卡...");
     try {
       const result = await doPunch(WeaTools, signParams);
