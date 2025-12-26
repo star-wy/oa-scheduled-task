@@ -9,7 +9,7 @@
   "dependencies": {
     "@netlify/functions": "^2.0.0",
     "@sparticuz/chromium": "^119.0.0",
-    "puppeteer-core": "^119.0.0"
+    "puppeteer-core": "^24.8.0"
   },
   "engines": {
     "node": ">=16.0.0"
