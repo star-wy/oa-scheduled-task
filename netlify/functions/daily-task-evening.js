@@ -364,13 +364,34 @@ const taskHandler = async (event, context) => {
     const targetUrl = 'http://115.236.22.132:88/wui/index.html#/?logintype=1&_key=sdphid';
     console.log(`正在访问: ${targetUrl}`);
     
-    // 导航到目标页面
-    // waitUntil: 'networkidle2' - 等待网络空闲（最多 2 个连接）后再继续
-    // timeout: 60000 - 超时时间 60 秒
-    await page.goto(targetUrl, { 
-      waitUntil: 'networkidle2', 
-      timeout: 60000 
-    });
+    // 导航到目标页面（使用重试机制）
+    // waitUntil: 'domcontentloaded' - 等待 DOM 加载完成即可（比 networkidle2 更宽松）
+    // timeout: 120000 - 超时时间 120 秒（增加超时时间）
+    let pageLoaded = false;
+    let retryCount = 0;
+    const maxRetries = 3;
+    
+    while (!pageLoaded && retryCount < maxRetries) {
+      try {
+        console.log(`尝试加载页面 (第 ${retryCount + 1}/${maxRetries} 次)...`);
+        await page.goto(targetUrl, { 
+          waitUntil: 'domcontentloaded',  // 改为更宽松的等待策略
+          timeout: 120000,                  // 增加到 120 秒
+          waitForSelector: false           // 不等待特定选择器
+        });
+        pageLoaded = true;
+        console.log("✓ 页面加载成功");
+      } catch (error) {
+        retryCount++;
+        if (retryCount >= maxRetries) {
+          console.error(`✗ 页面加载失败（已重试 ${maxRetries} 次）:`, error.message);
+          throw new Error(`无法连接到目标服务器，请检查网络连接或服务器是否可访问。错误: ${error.message}`);
+        } else {
+          console.warn(`⚠ 第 ${retryCount} 次尝试失败，3 秒后重试...`);
+          await page.waitForTimeout(3000);
+        }
+      }
+    }
 
     // 获取页面标题（验证页面加载成功）
     const title = await page.title();
