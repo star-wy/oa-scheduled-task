@@ -237,10 +237,26 @@ async function performPunch(page, punchType) {
   console.log(`\n开始执行打卡操作（类型: ${punchType}）...`);
   
   try {
-    // 读取打卡辅助脚本
-    const punchHelperPath = path.join(__dirname, '../../punch-helper.js');
-    if (!fs.existsSync(punchHelperPath)) {
-      console.warn("⚠️ 未找到 punch-helper.js 文件");
+    // 读取打卡辅助脚本（尝试多个可能的路径）
+    const possiblePaths = [
+      path.join(__dirname, 'punch-helper.js'),           // 同目录下
+      path.join(__dirname, '../../punch-helper.js'),      // 项目根目录
+      path.join(process.cwd(), 'punch-helper.js'),        // 当前工作目录
+      path.join(process.cwd(), 'netlify/functions/punch-helper.js') // 完整路径
+    ];
+    
+    let punchHelperPath = null;
+    for (const testPath of possiblePaths) {
+      if (fs.existsSync(testPath)) {
+        punchHelperPath = testPath;
+        console.log(`✓ 找到打卡辅助脚本: ${testPath}`);
+        break;
+      }
+    }
+    
+    if (!punchHelperPath) {
+      console.warn("⚠️ 未找到 punch-helper.js 文件，尝试的路径:");
+      possiblePaths.forEach(p => console.warn(`  - ${p}`));
       return { success: false, error: '未找到打卡辅助脚本' };
     }
     
