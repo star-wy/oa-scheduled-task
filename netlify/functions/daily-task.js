@@ -76,7 +76,7 @@ async function performLogin(page, username, password) {
 
   try {
     // 等待页面完全加载
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(10000);
     
     // 在页面上下文中执行登录逻辑
     const loginResult = await page.evaluate(async (config) => {
@@ -191,7 +191,7 @@ async function performLogin(page, username, password) {
       passwordInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
       
       // 等待一下，确保输入完成
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 2000));
       
       // 点击登录按钮
       loginButton.click();
