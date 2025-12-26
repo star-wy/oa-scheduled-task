@@ -1,0 +1,52 @@
+name: Auto Task Scheduler
+
+# 触发条件
+on:
+  schedule:
+    # cron 表达式：分钟 小时 日 月 周
+    # 注意：GitHub 使用 UTC 时间，比北京时间慢 8 小时
+    # 示例：UTC 0:00 是北京时间 8:00
+    - cron: '0 */1 * * *' # 每1小时运行一次
+  
+  # 允许在 GitHub 网页上点击按钮手动触发测试
+  workflow_dispatch:
+
+jobs:
+  run-puppeteer:
+    runs-on: ubuntu-latest
+    
+    steps:
+    # 1. 下载代码仓库
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    # 2. 安装 Node.js 环境
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    # 3. 安装中文字体 (防止截图乱码)
+    - name: Install Chinese Fonts
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y fonts-noto-cjk
+
+    # 4. 安装依赖
+    - name: Install Dependencies
+      run: npm install
+
+    # 5. 执行任务脚本 (直接运行 task.js，不需要 scheduler.js)
+    - name: Run Task
+      run: node task.js
+
+    # 6. 上传截图作为结果保存 (可选)
+    # 运行结束后，可以在 GitHub Actions 页面下载 screenshot-xxx.png 查看效果
+    - name: Upload Screenshots
+      uses: actions/upload-artifact@v4
+      if: always() # 即使任务失败也上传截图
+      with:
+        name: execution-screenshots
+        path: "*.png"
+        retention-days: 3
+

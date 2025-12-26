@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <style>
+      body {
+        width: 100vw;
+        height: 100vh;
+        margin: 0; /* 去除默认边距 */
+        overflow: hidden; /* 防止滚动条 */
+      }
+      /* 添加 iframe 样式使其铺满 */
+      iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+      }
+    </style>
+</head>
+<body>
+  <!-- 修改 src 指向本地代理服务器端口 3000 -->
+  <iframe src="http://localhost:3000/wui/index.html#/?logintype=1&_key=sdphid"></iframe>
+</body>
+</html>
