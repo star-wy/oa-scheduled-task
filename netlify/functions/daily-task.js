@@ -438,8 +438,19 @@ async function performLogin(page, username, password) {
   }
 
   try {
-    // 等待页面完全加载
-    await page.waitForTimeout(10000);
+    // 智能等待：等待登录元素出现，而不是固定等待10秒
+    // 尝试等待登录输入框出现（最多等待5秒）
+    try {
+      await page.waitForSelector('#loginid, input[name="username"], input[type="text"]', { 
+        timeout: 5000 
+      }).catch(() => {
+        // 如果找不到，继续执行（可能页面结构不同）
+        console.log("未找到标准登录元素，继续尝试...");
+      });
+    } catch (e) {
+      // 如果等待失败，使用较短的固定等待
+      await page.waitForTimeout(2000);
+    }
     
     // 在页面上下文中执行登录逻辑
     const loginResult = await page.evaluate(async (config) => {
@@ -553,8 +564,8 @@ async function performLogin(page, username, password) {
       passwordInput.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
       passwordInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
       
-      // 等待一下，确保输入完成
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // 等待一下，确保输入完成（减少到1秒）
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
       // 点击登录按钮
       loginButton.click();
@@ -575,8 +586,19 @@ async function performLogin(page, username, password) {
       console.log(`✓ 找到登录按钮: ${loginResult.foundButtonSelector}`);
       
       // 等待页面响应（登录后的跳转或加载）
+      // 尝试等待页面跳转或特定元素出现，而不是固定等待
       console.log("等待登录响应...");
-      await page.waitForTimeout(3000);
+      try {
+        // 等待页面导航完成或特定元素出现（最多等待3秒）
+        await Promise.race([
+          page.waitForNavigation({ timeout: 3000, waitUntil: 'domcontentloaded' }).catch(() => {}),
+          page.waitForSelector('button[name="signBtn"], #submit', { timeout: 3000 }).catch(() => {}),
+          new Promise(resolve => setTimeout(resolve, 2000)) // 最小等待2秒
+        ]);
+      } catch (e) {
+        // 如果等待失败，使用较短的固定等待
+        await page.waitForTimeout(2000);
+      }
       
       return true;
     } else {
@@ -604,9 +626,20 @@ async function performPunch(page, punchType) {
     const punchHelperCode = PUNCH_HELPER_CODE;
     console.log(`✓ 使用嵌入的打卡辅助脚本`);
     
-    // 等待页面完全加载，确保页面框架已初始化
+    // 智能等待：等待页面框架初始化（减少固定等待时间）
     console.log("等待页面完全加载（等待 WeaTools 可用）...");
-    await page.waitForTimeout(5000);
+    try {
+      // 尝试等待打卡按钮或特定元素出现（最多等待3秒）
+      await page.waitForSelector('button[name="signBtn"], button', { 
+        timeout: 3000 
+      }).catch(() => {
+        // 如果找不到，使用较短的固定等待
+        console.log("未找到打卡按钮，使用固定等待...");
+      });
+    } catch (e) {
+      // 如果等待失败，使用较短的固定等待
+      await page.waitForTimeout(2000);
+    }
     
     // 注入打卡辅助脚本到页面并执行打卡
     const punchResult = await page.evaluate(async (scriptCode, punchType) => {
@@ -615,10 +648,10 @@ async function performPunch(page, punchType) {
       script.textContent = scriptCode;
       document.head.appendChild(script);
       
-      // 等待 PunchHelper 可用
+      // 等待 PunchHelper 可用（减少重试次数和等待时间）
       let retries = 0;
-      while (!window.PunchHelper && retries < 10) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+      while (!window.PunchHelper && retries < 5) {
+        await new Promise(resolve => setTimeout(resolve, 500));
         retries++;
       }
       
@@ -629,13 +662,13 @@ async function performPunch(page, punchType) {
         };
       }
       
-      // 等待 WeaTools 可用（最多等待 10 秒）
+      // 等待 WeaTools 可用（减少等待时间，最多等待 5 秒）
       let weaToolsRetries = 0;
       let weaTools = null;
       while (!weaTools && weaToolsRetries < 10) {
         weaTools = window.PunchHelper.findWeaTools();
         if (!weaTools) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          await new Promise(resolve => setTimeout(resolve, 500));
           weaToolsRetries++;
         }
       }
@@ -750,9 +783,20 @@ const taskHandler = async (event, context) => {
     if (loginSuccess) {
       console.log("\n✓ 登录流程完成");
       
-      // 等待页面跳转和加载完成
+      // 智能等待：等待页面跳转和加载完成
       console.log("等待页面加载完成...");
-      await page.waitForTimeout(3000);
+      try {
+        // 尝试等待打卡相关元素出现（最多等待3秒）
+        await page.waitForSelector('button[name="signBtn"], button', { 
+          timeout: 3000 
+        }).catch(() => {
+          // 如果找不到，使用较短的固定等待
+          console.log("未找到打卡元素，使用固定等待...");
+        });
+      } catch (e) {
+        // 如果等待失败，使用较短的固定等待
+        await page.waitForTimeout(2000);
+      }
       
       // 执行打卡（早上是上班打卡 "on"）
       punchResult = await performPunch(page, 'on');
@@ -776,6 +820,13 @@ const taskHandler = async (event, context) => {
       console.warn("⚠️ 登录失败，跳过打卡操作");
     }
     // -------------------
+
+    // 在返回响应前，等待一小段时间确保所有操作完成（如打卡结果已保存）
+    // 注意：这个延迟会增加总执行时间，需要权衡
+    if (punchResult && punchResult.success) {
+      console.log("等待操作完成...");
+      await page.waitForTimeout(5000); // 等待 2 秒确保打卡操作完全完成
+    }
 
     // 返回成功响应
     return {
@@ -801,8 +852,11 @@ const taskHandler = async (event, context) => {
     };
   } finally {
     // 资源清理：确保浏览器实例被正确关闭，避免资源泄漏
+    // 浏览器会在返回响应后立即关闭（无额外延迟）
     if (browser) {
+      console.log("正在关闭浏览器...");
       await browser.close();
+      console.log("✓ 浏览器已关闭");
     }
   }
 };
