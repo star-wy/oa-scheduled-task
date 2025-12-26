@@ -27,8 +27,8 @@ const taskHandler = async (event, context) => {
     console.log(`正在访问: ${targetUrl}`);
     
     await page.goto(targetUrl, { 
-      waitUntil: 'networkidle0', 
-      timeout: 8000 
+      waitUntil: 'networkidle2', 
+      timeout: 60000 
     });
 
     const title = await page.title();
