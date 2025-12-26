@@ -629,6 +629,10 @@ async function performPunch(page, punchType) {
   console.log(`\n开始执行打卡操作（类型: ${punchType}）...`);
   
   try {
+    // 打印当前页面地址
+    const currentUrl = page.url();
+    console.log(`📍 当前页面地址: ${currentUrl}`);
+    
     // 使用嵌入的打卡辅助脚本代码（避免文件系统依赖）
     const punchHelperCode = PUNCH_HELPER_CODE;
     console.log(`✓ 使用嵌入的打卡辅助脚本`);
@@ -650,10 +654,15 @@ async function performPunch(page, punchType) {
     
     // 注入打卡辅助脚本到页面并执行打卡
     const punchResult = await page.evaluate(async (scriptCode, punchType) => {
+      // 打印注入脚本前的页面地址
+      console.log('📍 注入脚本前页面地址:', window.location.href);
+      
       // 注入脚本代码
       const script = document.createElement('script');
       script.textContent = scriptCode;
       document.head.appendChild(script);
+      
+      console.log('✅ 脚本已注入到页面');
       
       // 等待 PunchHelper 可用（减少重试次数和等待时间）
       let retries = 0;
@@ -668,6 +677,8 @@ async function performPunch(page, punchType) {
           error: 'PunchHelper 未加载，请检查脚本是否正确注入'
         };
       }
+      
+      console.log('✅ PunchHelper 已加载');
       
       // 等待 WeaTools 可用（减少等待时间，最多等待 5 秒）
       let weaToolsRetries = 0;
@@ -814,6 +825,10 @@ const taskHandler = async (event, context) => {
     if (loginSuccess) {
       console.log("\n✓ 登录流程完成");
       
+      // 打印登录后的页面地址
+      const loginAfterUrl = page.url();
+      console.log(`📍 登录后页面地址: ${loginAfterUrl}`);
+      
       // 智能等待：等待页面跳转和加载完成
       console.log("等待页面加载完成...");
       try {
@@ -828,6 +843,10 @@ const taskHandler = async (event, context) => {
         // 如果等待失败，使用较短的固定等待
         await page.waitForTimeout(2000);
       }
+      
+      // 再次打印页面地址，确认是否跳转
+      const beforePunchUrl = page.url();
+      console.log(`📍 执行打卡前页面地址: ${beforePunchUrl}`);
       
       // 执行打卡（晚上是下班打卡 "off"）
       punchResult = await performPunch(page, 'off');
