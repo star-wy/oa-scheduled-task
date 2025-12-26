@@ -687,14 +687,38 @@ async function performPunch(page, punchType) {
           : { time: { name: '下午下班打卡' } };
         
         const result = await window.PunchHelper.punch(punchTimeInfo);
+        
+        // 如果返回 null，说明打卡失败或没有可打卡项
+        if (result === null) {
+          // 尝试获取更详细的错误信息
+          const pageUrl = window.location.href;
+          const hasLoginPage = document.getElementById('submit') !== null;
+          const hasWeaTools = window.PunchHelper.findWeaTools() !== null;
+          
+          let errorMsg = '打卡操作返回 null';
+          if (hasLoginPage) {
+            errorMsg = '检测到登录页面，可能需要重新登录';
+          } else if (!hasWeaTools) {
+            errorMsg = 'WeaTools 未找到，页面可能未完全加载';
+          } else {
+            errorMsg = '当前没有可打卡的项（可能已经打卡过了）';
+          }
+          
+          return {
+            success: false,
+            error: errorMsg,
+            result: null
+          };
+        }
+        
         return {
-          success: result !== null,
+          success: true,
           result: result
         };
       } catch (error) {
         return {
           success: false,
-          error: error.message || String(error)
+          error: error.message || String(error) || '打卡过程中发生未知错误'
         };
       }
     }, punchHelperCode, punchType);
@@ -814,7 +838,14 @@ const taskHandler = async (event, context) => {
           console.log("ℹ️ 当前没有可打卡的项（可能已经打卡过了）");
         }
       } else {
-        console.error("✗ 打卡操作失败:", punchResult.error);
+        console.error("✗ 打卡操作失败:", punchResult.error || '未知错误');
+        // 输出更详细的错误信息用于调试
+        if (punchResult.error) {
+          console.error("错误详情:", punchResult.error);
+        }
+        if (punchResult.result) {
+          console.log("打卡结果对象:", JSON.stringify(punchResult.result, null, 2));
+        }
       }
     } else {
       console.warn("⚠️ 登录失败，跳过打卡操作");
@@ -825,7 +856,7 @@ const taskHandler = async (event, context) => {
     // 注意：这个延迟会增加总执行时间，需要权衡
     if (punchResult && punchResult.success) {
       console.log("等待操作完成...");
-      await page.waitForTimeout(5000); // 等待 2 秒确保打卡操作完全完成
+      await page.waitForTimeout(5000); // 等待 5 秒确保打卡操作完全完成
     }
 
     // 返回成功响应
